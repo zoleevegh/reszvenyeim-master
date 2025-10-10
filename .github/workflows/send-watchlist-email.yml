@@ -2,8 +2,8 @@ name: Send watchlist CSV by email
 
 on:
   schedule:
-    - cron: "58 7 * * 1-5"
-    - cron: "58 6 * * 1-5"
+    - cron: "58 7 * * 1-5"   # 08:58 CET (téli)
+    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári)
   workflow_dispatch: {}
 
 jobs:
@@ -33,10 +33,12 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASS }}
-          from: ${{ secrets.FROM_EMAIL }}
+          from: ${{ secrets.FROM_EMAIL }}   # <-- EZ HIÁNYZOTT
           to: ${{ secrets.TO_EMAIL }}
           secure: true
           subject: "WATCHLIST CSV ${{ github.run_id }}"
-          body: ${{ steps.csv.outputs.body }}
+          html_body: |
+            <p>Daily watchlist CSV inline:</p>
+            <pre>${{ steps.csv.outputs.body }}</pre>
           attachments: |
             docs/watchlist.csv
