@@ -37,8 +37,6 @@ jobs:
           to: ${{ secrets.TO_EMAIL }}
           secure: true
           subject: "WATCHLIST CSV ${{ github.run_id }}"
-          html_body: |
-            <p>Daily watchlist CSV inline:</p>
-            <pre>${{ steps.csv.outputs.body }}</pre>
+          body: ${{ steps.csv.outputs.body }}
           attachments: |
             docs/watchlist.csv
