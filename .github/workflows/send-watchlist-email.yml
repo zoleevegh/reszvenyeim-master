@@ -2,9 +2,8 @@ name: Send watchlist CSV by email
 
 on:
   schedule:
-    # GitHub cron = UTC. Két sor az óraátállítás miatt:
-    - cron: "58 7 * * 1-5"   # 08:58 CET (téli idő, UTC+1)
-    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári idő, UTC+2)
+    - cron: "58 7 * * 1-5"
+    - cron: "58 6 * * 1-5"
   workflow_dispatch: {}
 
 jobs:
@@ -14,7 +13,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Kinyerjük a CSV-t egy outputba, egyszerű névvel: "body"
       - name: Build email body from CSV
         id: csv
         run: |
@@ -39,7 +37,6 @@ jobs:
           to: ${{ secrets.TO_EMAIL }}
           secure: true
           subject: "WATCHLIST CSV ${{ github.run_id }}"
-          # Ha sima szöveg kellene: használd a 'body' kulcsot.
           html_body: |
             <p>Daily watchlist CSV inline:</p>
             <pre>${{ steps.csv.outputs.body }}</pre>
