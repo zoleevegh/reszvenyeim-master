@@ -2,9 +2,9 @@ name: Send watchlist CSV by email
 
 on:
   schedule:
-    - cron: "58 7 * * 1-5"   # 08:58 CET (téli)
-    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári)
-  workflow_dispatch: {}
+    - cron: "58 7 * * 1-5"   # 08:58 CET (téli idő)
+    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári idő)
+  workflow_dispatch:
 
 jobs:
   send:
@@ -13,30 +13,17 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Build email body from CSV
-        id: csv
-        run: |
-          {
-            echo 'body<<EOF'
-            echo "WATCHLIST CSV $(date -u +'%Y-%m-%d') (UTC)"
-            echo
-            echo '-----BEGIN CSV-----'
-            cat docs/watchlist.csv
-            echo '-----END CSV-----'
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
       - name: Send email with CSV (attachment only)
-  uses: dawidd6/action-send-mail@v3
-  with:
-    server_address: ${{ secrets.SMTP_HOST }}
-    server_port: ${{ secrets.SMTP_PORT }}
-    username: ${{ secrets.SMTP_USER }}
-    password: ${{ secrets.SMTP_PASS }}
-    from: ${{ secrets.FROM_EMAIL }}
-    to: ${{ secrets.TO_EMAIL }}
-    secure: true
-    subject: "WATCHLIST CSV DAILY"
-    body: "Daily watchlist attached as CSV. (UTF-8, LF)"
-    attachments: |
-      docs/watchlist.csv
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          from: ${{ secrets.FROM_EMAIL }}
+          to: ${{ secrets.TO_EMAIL }}
+          secure: true
+          subject: "WATCHLIST CSV DAILY"
+          body: "Daily watchlist attached as CSV (UTF-8, LF)."
+          attachments: |
+            docs/watchlist.csv
