@@ -2,8 +2,8 @@ name: Send watchlist CSV by email
 
 on:
   schedule:
-    - cron: "58 7 * * 1-5"   # 08:58 CET (téli idő)
-    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári idő)
+    - cron: "58 7 * * 1-5"   # 08:58 CET (téli)
+    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári)
   workflow_dispatch:
 
 jobs:
@@ -13,17 +13,28 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Send email with CSV (attachment only)
+      # Beolvassuk a CSV-t és egy "body" outputba tesszük (egyszerű TEXT!)
+      - name: Read CSV for mail body (plain text)
+        id: csv
+        run: |
+          {
+            echo 'body<<EOF'
+            cat docs/watchlist.csv
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send email with CSV (inline + attachment)
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: ${{ secrets.SMTP_HOST }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USER }}
-          password: ${{ secrets.SMTP_PASS }}
-          from: ${{ secrets.FROM_EMAIL }}
-          to: ${{ secrets.TO_EMAIL }}
-          secure: true
-          subject: "WATCHLIST CSV DAILY"
-          body: "Daily watchlist attached as CSV (UTF-8, LF)."
-          attachments: |
-            docs/watchlist.csv
+            server_address: ${{ secrets.SMTP_HOST }}
+            server_port: ${{ secrets.SMTP_PORT }}
+            username: ${{ secrets.SMTP_USER }}
+            password: ${{ secrets.SMTP_PASS }}
+            from: ${{ secrets.FROM_EMAIL }}
+            to: ${{ secrets.TO_EMAIL }}
+            secure: true
+            subject: "WATCHLIST CSV DAILY"
+            # CSAK egyszerű szöveg – így nincs Gmail “clipping”
+            body: ${{ steps.csv.outputs.body }}
+            attachments: |
+              docs/watchlist.csv
