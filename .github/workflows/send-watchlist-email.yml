@@ -2,8 +2,8 @@ name: Send watchlist CSV by email
 
 on:
   schedule:
-    - cron: "58 7 * * 1-5"   # 08:58 CET (téli)
-    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári)
+    - cron: "58 7 * * 1-5"   # 08:58 CET (téli idő)
+    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári idő)
   workflow_dispatch:
 
 jobs:
@@ -13,39 +13,56 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Beolvassuk a CSV-t és egy "body" outputba tesszük (egyszerű TEXT!)
-      - name: Read CSV for mail body (plain text)
-        id: csv
-        run: |
-          {
-            echo 'body<<EOF'
-            cat docs/watchlist.csv
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+      # 1) TELJES CSV - CSATOMÁNYBAN (biztonsági másolat)
+      - name: Send WATCHLIST CSV DAILY (attachment only)
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          from: ${{ secrets.FROM_EMAIL }}
+          to: ${{ secrets.TO_EMAIL }}
+          secure: true
+          subject: "WATCHLIST CSV DAILY"
+          body: "Daily watchlist attached as CSV (UTF-8, LF)."
+          attachments: |
+            docs/watchlist.csv
 
-      - name: Send email with CSV (inline + attachment)
-              - name: Build MINIMAL (Ticker,Darabszám) as plain text
+      # 2) MINIMÁL CSV a levél törzsében (Ticker, Darabszám) – ebből olvasok automatikusan
+      - name: Build MINIMAL (Ticker,Darabszám) as plain text
         id: mincsv
         run: |
           python - <<'PY'
-import csv, sys
-with open('docs/watchlist.csv', encoding='utf-8') as f:
-    r = csv.reader(f)
-    rows = list(r)
-# fejlec normalizalas
-out = []
-out.append("Ticker,Darabszám")
+import csv, io, sys
+from pathlib import Path
+
+p = Path("docs/watchlist.csv")
+txt = ["Ticker,Darabszám"]
+
+with p.open("r", encoding="utf-8", newline="") as f:
+    # próbálkozunk , majd ; elválasztóval
+    data = f.read()
+    for delim in (",", ";"):
+        f2 = io.StringIO(data)
+        r = csv.reader(f2, delimiter=delim)
+        rows = list(r)
+        if len(rows) >= 2 and len(rows[0]) >= 2:
+            break
+
+# fejléc-normalizálás és kiírás
 for row in rows[1:]:
-    t = (row[0] or "").strip()
-    d = (row[1] or "").strip()
+    t = (row[0] if len(row) > 0 else "").strip()
+    d = (row[1] if len(row) > 1 else "").strip()
     if t:
-        out.append(f"{t},{d}")
-txt = "\n".join(out)
+        txt.append(f"{t},{d}")
+
+out = "\n".join(txt)
 print("body<<EOF")
-print(txt)
+print(out)
 print("EOF")
 PY
-        >> "$GITHUB_OUTPUT"
+          >> "$GITHUB_OUTPUT"
 
       - name: Send WATCHLIST MIN (inline)
         uses: dawidd6/action-send-mail@v3
