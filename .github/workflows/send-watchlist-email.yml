@@ -24,17 +24,38 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Send email with CSV (inline + attachment)
+              - name: Build MINIMAL (Ticker,Darabszám) as plain text
+        id: mincsv
+        run: |
+          python - <<'PY'
+import csv, sys
+with open('docs/watchlist.csv', encoding='utf-8') as f:
+    r = csv.reader(f)
+    rows = list(r)
+# fejlec normalizalas
+out = []
+out.append("Ticker,Darabszám")
+for row in rows[1:]:
+    t = (row[0] or "").strip()
+    d = (row[1] or "").strip()
+    if t:
+        out.append(f"{t},{d}")
+txt = "\n".join(out)
+print("body<<EOF")
+print(txt)
+print("EOF")
+PY
+        >> "$GITHUB_OUTPUT"
+
+      - name: Send WATCHLIST MIN (inline)
         uses: dawidd6/action-send-mail@v3
         with:
-            server_address: ${{ secrets.SMTP_HOST }}
-            server_port: ${{ secrets.SMTP_PORT }}
-            username: ${{ secrets.SMTP_USER }}
-            password: ${{ secrets.SMTP_PASS }}
-            from: ${{ secrets.FROM_EMAIL }}
-            to: ${{ secrets.TO_EMAIL }}
-            secure: true
-            subject: "WATCHLIST CSV DAILY"
-            # CSAK egyszerű szöveg – így nincs Gmail “clipping”
-            body: ${{ steps.csv.outputs.body }}
-            attachments: |
-              docs/watchlist.csv
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          from: ${{ secrets.FROM_EMAIL }}
+          to: ${{ secrets.TO_EMAIL }}
+          secure: true
+          subject: "WATCHLIST MIN"
+          body: ${{ steps.mincsv.outputs.body }}
