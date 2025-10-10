@@ -180,7 +180,7 @@ jobs:
           df.to_csv(full_path, index=False, encoding="utf-8")
 
           min_cols = ["Ticker","MovePct","VolX20D","NewsURL1","EarningsIn3D"]
-          df[min_cols].to_csv(min_path, index=False, encoding="utf-8", line_terminator="\n")
+          df[min_cols].to_csv(min_path, index=False, encoding="utf-8", lineterminator="\n")
 
           print(full_path.as_posix())
           print(min_path.as_posix())
