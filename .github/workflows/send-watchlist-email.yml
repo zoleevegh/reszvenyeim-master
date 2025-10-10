@@ -1,0 +1,43 @@
+name: Send watchlist CSV by email
+
+on:
+  schedule:
+    # Két időzítés a nyári/téli idő óraátállítás miatt (GitHub cron = UTC)
+    - cron: '58 7 * * 1-5'   # 08:58 CET (téli idő = UTC+1)
+    - cron: '58 6 * * 1-5'   # 08:58 CEST (nyári idő = UTC+2)
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read CSV into body
+        id: csv
+        run: |
+          echo "BODY<<'EOF'" >> $GITHUB_OUTPUT
+          echo "WATCHLIST CSV $(date -u +'%Y-%m-%d') (UTC)" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "-----BEGIN CSV-----" >> $GITHUB_OUTPUT
+          cat docs/watchlist.csv >> $GITHUB_OUTPUT
+          echo "-----END CSV-----" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: "WATCHLIST CSV $(date -u +'%Y-%m-%d')"
+          from: ${{ secrets.FROM_EMAIL }}
+          to:   ${{ secrets.TO_EMAIL }}
+          secure: true
+          html_body: |
+            <p>Daily watchlist CSV inline:</p>
+            <pre>
+${{ steps.csv.outputs.BODY }}
+            </pre>
+          attachments: docs/watchlist.csv
