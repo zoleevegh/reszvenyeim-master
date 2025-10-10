@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 1) TELJES CSV csatolmányként
+      # 1) TELJES CSV csatolmányként (backup)
       - name: Send WATCHLIST CSV DAILY (attachment only)
         uses: dawidd6/action-send-mail@v3
         with:
@@ -29,7 +29,7 @@ jobs:
           attachments: |
             docs/watchlist.csv
 
-      # 2) MINIMÁL lista (Ticker,Darabszám) – a LEVÉL TÖRZSÉBEN
+      # 2) MINIMÁL lista (Ticker,Darabszám) – LEVÉL TÖRZSÉBEN
       - name: Build MIN (Ticker,Darabszám)
         id: build_min
         shell: bash
@@ -37,14 +37,14 @@ jobs:
           python - <<'PY' > min_watchlist.txt
 import csv, io, pathlib
 p = pathlib.Path("docs/watchlist.csv")
-data = p.read_text(encoding="utf-8")
+data = p.read_text(encoding="utf-8", errors="replace")
 
-# próbálkozunk "," majd ";" elválasztóval
+# próbáljuk "," majd ";" elválasztóval
 rows = []
 for delim in (",", ";"):
     rdr = csv.reader(io.StringIO(data), delimiter=delim)
     rows = list(rdr)
-    if len(rows) >= 2 and len(rows[0]) >= 2:
+    if rows and len(rows[0]) >= 2:
         break
 
 out = ["Ticker,Darabszám"]
@@ -54,5 +54,23 @@ for r in rows[1:]:
     if t:
         out.append(f"{t},{d}")
 
-pathlib.Path("min_watchlist.txt").write_text("\n".join(out), encoding="utf-8")
+pathlib.Path("min_watchlist.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
 PY
+          {
+            echo 'body<<EOF'
+            cat min_watchlist.txt
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send WATCHLIST MIN (inline)
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          from: ${{ secrets.FROM_EMAIL }}
+          to: ${{ secrets.TO_EMAIL }}
+          secure: true
+          subject: "WATCHLIST MIN"
+          body: ${{ steps.build_min.outputs.body }}
