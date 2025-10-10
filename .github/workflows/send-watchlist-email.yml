@@ -2,8 +2,8 @@ name: Send watchlist CSV by email
 
 on:
   schedule:
-    - cron: "58 7 * * 1-5"   # 08:58 CET (téli idő)
-    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári idő)
+    - cron: "58 7 * * 1-5"   # 08:58 CET (téli)
+    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári)
   workflow_dispatch:
 
 jobs:
@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 1) TELJES CSV - CSATOMÁNYBAN (biztonsági másolat)
+      # 1) TELJES CSV csatolmányként
       - name: Send WATCHLIST CSV DAILY (attachment only)
         uses: dawidd6/action-send-mail@v3
         with:
@@ -29,50 +29,30 @@ jobs:
           attachments: |
             docs/watchlist.csv
 
-      # 2) MINIMÁL CSV a levél törzsében (Ticker, Darabszám) – ebből olvasok automatikusan
-      - name: Build MINIMAL (Ticker,Darabszám) as plain text
-        id: mincsv
+      # 2) MINIMÁL lista (Ticker,Darabszám) – a LEVÉL TÖRZSÉBEN
+      - name: Build MIN (Ticker,Darabszám)
+        id: build_min
+        shell: bash
         run: |
-          python - <<'PY'
-import csv, io, sys
-from pathlib import Path
+          python - <<'PY' > min_watchlist.txt
+import csv, io, pathlib
+p = pathlib.Path("docs/watchlist.csv")
+data = p.read_text(encoding="utf-8")
 
-p = Path("docs/watchlist.csv")
-txt = ["Ticker,Darabszám"]
+# próbálkozunk "," majd ";" elválasztóval
+rows = []
+for delim in (",", ";"):
+    rdr = csv.reader(io.StringIO(data), delimiter=delim)
+    rows = list(rdr)
+    if len(rows) >= 2 and len(rows[0]) >= 2:
+        break
 
-with p.open("r", encoding="utf-8", newline="") as f:
-    # próbálkozunk , majd ; elválasztóval
-    data = f.read()
-    for delim in (",", ";"):
-        f2 = io.StringIO(data)
-        r = csv.reader(f2, delimiter=delim)
-        rows = list(r)
-        if len(rows) >= 2 and len(rows[0]) >= 2:
-            break
-
-# fejléc-normalizálás és kiírás
-for row in rows[1:]:
-    t = (row[0] if len(row) > 0 else "").strip()
-    d = (row[1] if len(row) > 1 else "").strip()
+out = ["Ticker,Darabszám"]
+for r in rows[1:]:
+    t = (r[0] if len(r) > 0 else "").strip()
+    d = (r[1] if len(r) > 1 else "").strip()
     if t:
-        txt.append(f"{t},{d}")
+        out.append(f"{t},{d}")
 
-out = "\n".join(txt)
-print("body<<EOF")
-print(out)
-print("EOF")
+pathlib.Path("min_watchlist.txt").write_text("\n".join(out), encoding="utf-8")
 PY
-          >> "$GITHUB_OUTPUT"
-
-      - name: Send WATCHLIST MIN (inline)
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_HOST }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USER }}
-          password: ${{ secrets.SMTP_PASS }}
-          from: ${{ secrets.FROM_EMAIL }}
-          to: ${{ secrets.TO_EMAIL }}
-          secure: true
-          subject: "WATCHLIST MIN"
-          body: ${{ steps.mincsv.outputs.body }}
