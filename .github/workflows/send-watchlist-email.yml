@@ -1,74 +1,207 @@
-name: Send watchlist CSV by email
+name: Send watchlist signals by email
 
 on:
   schedule:
-    - cron: "58 7 * * 1-5"   # 08:58 CET (téli)
-    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári)
+    - cron: "58 7 * * 1-5"   # 08:58 CET (téli idő, UTC+1)
+    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári idő, UTC+2)
   workflow_dispatch:
 
 jobs:
-  send:
+  build_and_send:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 1) TELJES CSV csatolmányként (backup)
-      - name: Send WATCHLIST CSV DAILY (attachment only)
-        uses: dawidd6/action-send-mail@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          server_address: ${{ secrets.SMTP_HOST }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USER }}
-          password: ${{ secrets.SMTP_PASS }}
-          from: ${{ secrets.FROM_EMAIL }}
-          to: ${{ secrets.TO_EMAIL }}
-          secure: true
-          subject: "WATCHLIST CSV DAILY"
-          body: "Daily watchlist attached as CSV (UTF-8, LF)."
-          attachments: |
-            docs/watchlist.csv
+          python-version: "3.11"
 
-      # 2) MINIMÁL lista (Ticker,Darabszám) – LEVÉL TÖRZSÉBEN
-      - name: Build MIN (Ticker,Darabszám)
-        id: build_min
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas pytz
+
+      - name: Build signals (price/UV/news/earnings)
+        id: build
         shell: bash
         run: |
-          # írunk egy kis Python scriptet fájlba (nincs here-doc redirect a python során)
-          cat > build_min.py <<'PY'
-          import csv, io, pathlib
-          p = pathlib.Path("docs/watchlist.csv")
-          data = p.read_text(encoding="utf-8", errors="replace")
+          # Python scriptet fájlba írunk, majd futtatjuk
+          cat > build_signals.py <<'PY'
+          import pandas as pd, yfinance as yf, pytz, datetime as dt, csv, io, sys, math
+          from pathlib import Path
 
-          # próbáljuk "," majd ";" elválasztóval
+          CET = pytz.timezone("Europe/Budapest")
+          now_cet = dt.datetime.now(CET)
+
+          # 1) Watchlist beolvasás
+          p = Path("docs/watchlist.csv")
+          raw = p.read_text(encoding="utf-8", errors="replace")
           rows = []
-          for delim in (",", ";"):
-              rdr = csv.reader(io.StringIO(data), delimiter=delim)
-              rows = list(rdr)
-              if rows and len(rows[0]) >= 2:
-                  break
+          for delim in (",",";"):
+              r = list(csv.reader(io.StringIO(raw), delimiter=delim))
+              if len(r)>=2 and len(r[0])>=2:
+                  rows = r; break
+          if not rows:
+              print("No rows parsed from watchlist.csv", file=sys.stderr); sys.exit(1)
 
-          out = ["Ticker,Darabszám"]
+          # Fejléc normalizálás
+          header = [h.strip() for h in rows[0]]
+          # Keressük a két szükséges oszlopot
+          try:
+              i_t = header.index("Ticker")
+          except ValueError:
+              i_t = 0
+          try:
+              i_d = header.index("Darabszám")
+          except ValueError:
+              i_d = 1
+
+          items = []
           for r in rows[1:]:
-              t = (r[0] if len(r) > 0 else "").strip()
-              d = (r[1] if len(r) > 1 else "").strip()
+              if not r: continue
+              t = (r[i_t] if len(r)>i_t else "").strip().upper()
+              d = (r[i_d] if len(r)>i_d else "").strip()
               if t:
-                  out.append(f"{t},{d}")
+                  group = "A" if d and d.strip() not in ("0","0.0") else "B"
+                  items.append((t, d, group))
+          tickers = [t for t,_,_ in items]
+          if not tickers:
+              print("No tickers found", file=sys.stderr); sys.exit(1)
 
-          pathlib.Path("min_watchlist.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
+          # 2) Adatlekérés yfinance-szal
+          #   - napi OHLCV 60 napra (20D átlaghoz)
+          #   - hírek: legfeljebb 1 hír/ticker az elmúlt 2 napból
+          hist = yf.download(
+              tickers=" ".join(tickers),
+              period="60d",
+              interval="1d",
+              group_by="ticker",
+              auto_adjust=False,
+              threads=True,
+              progress=False,
+          )
+
+          def get_series(tk, col):
+              # yfinance több-ticker esetén MultiIndex-szel tér vissza
+              try:
+                  return hist[(tk, col)].dropna()
+              except Exception:
+                  try:
+                      # egyticker fallback
+                      return hist[col].dropna()
+                  except Exception:
+                      return pd.Series(dtype="float64")
+
+          def pct_move(tk):
+              s = get_series(tk, "Close")
+              if len(s) < 2: return None
+              # utolsó két zárás (Close/Close)
+              return (s.iloc[-1] / s.iloc[-2] - 1.0) * 100.0
+
+          def vol_x20(tk):
+              v = get_series(tk, "Volume")
+              if len(v) < 21: return None
+              avg20 = v.iloc[-21:-1].mean()
+              last = v.iloc[-1]
+              if avg20 <= 0: return None
+              return float(last) / float(avg20)
+
+          def one_news(tk):
+              try:
+                  nlist = yf.Ticker(tk).news or []
+              except Exception:
+                  nlist = []
+              # szűrjük az elmúlt 2 napra
+              cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=2)
+              for n in nlist:
+                  ts = n.get("providerPublishTime") or n.get("publishedAt")
+                  try:
+                      ts = dt.datetime.fromtimestamp(int(ts), tz=dt.timezone.utc)
+                  except Exception:
+                      ts = None
+                  if ts and ts >= cutoff:
+                      # CET-re konvertáljuk, és rövidítünk
+                      ts_cet = ts.astimezone(CET).strftime("%Y-%m-%d %H:%M")
+                      title = (n.get("title") or "").strip()
+                      url = (n.get("link") or n.get("url") or "").strip()
+                      return title, url, ts_cet
+              return None, None, None
+
+          def earnings_in_3d(tk):
+              try:
+                  cal = yf.Ticker(tk).calendar
+                  # új yfinance: get_incomestmt / get_earnings_dates is létezik,
+                  # de a 'calendar' gyakrabban kitöltött.
+                  if cal is not None and not cal.empty:
+                      # 'Earnings Date' vagy 'Earnings Date 1' oszlop néhány verzióban
+                      for col in ["Earnings Date","Earnings Date 1","EarningsDate","Next Earnings Date"]:
+                          if col in cal.index:
+                              val = cal.loc[col].values[0]
+                              if hasattr(val, "to_pydatetime"):
+                                  ed = val.to_pydatetime()
+                              else:
+                                  ed = pd.to_datetime(val, errors="coerce")
+                              if pd.notna(ed):
+                                  # CET-ben 3 napon belül?
+                                  ed = ed.tz_localize("UTC").astimezone(CET) if ed.tzinfo is None else ed.astimezone(CET)
+                                  delta = ed - now_cet
+                                  return (0 <= delta.days <= 3)
+              except Exception:
+                  pass
+              return False
+
+          rec = []
+          for t, d, g in items:
+              mv = pct_move(t)
+              uv = vol_x20(t)
+              nt, nu, nt_cet = one_news(t)
+              earn3 = earnings_in_3d(t)
+              rec.append({
+                  "Ticker": t,
+                  "Group": g,
+                  "Darabszám": d,
+                  "MovePct": round(mv,2) if mv is not None else "",
+                  "VolX20D": round(uv,2) if uv is not None else "",
+                  "NewsTitle": nt or "",
+                  "NewsURL1": nu or "",
+                  "NewsTimeCET": nt_cet or "",
+                  "EarningsIn3D": "Igen" if earn3 else "Nem"
+              })
+
+          df = pd.DataFrame(rec)
+
+          # 3) Mentés: teljes + minimál
+          out_dir = Path(".")
+          full_path = out_dir/"signals_full.csv"
+          min_path  = out_dir/"signals_min.txt"
+
+          df.to_csv(full_path, index=False, encoding="utf-8")
+
+          min_cols = ["Ticker","MovePct","VolX20D","NewsURL1","EarningsIn3D"]
+          df[min_cols].to_csv(min_path, index=False, encoding="utf-8", line_terminator="\n")
+
+          print(full_path.as_posix())
+          print(min_path.as_posix())
           PY
 
-          # futtatjuk a scriptet
-          python build_min.py
+          python build_signals.py > paths.txt
+          FULL=$(sed -n '1p' paths.txt)
+          MIN=$(sed -n '2p' paths.txt)
 
-          # a min_watchlist.txt tartalmát kitéve a step outputjába
+          # kitesszük a minimál tartalmat a step outputba (levél törzséhez)
           {
-            echo 'body<<EOF'
-            cat min_watchlist.txt
+            echo 'minbody<<EOF'
+            cat "$MIN"
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Send WATCHLIST MIN (inline)
+          # kitesszük a fájlneveket is
+          echo "fullpath=$FULL" >> "$GITHUB_OUTPUT"
+          echo "minpath=$MIN"  >> "$GITHUB_OUTPUT"
+
+      - name: Send WATCHLIST SIGNALS DAILY (attachment)
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_HOST }}
@@ -78,5 +211,20 @@ jobs:
           from: ${{ secrets.FROM_EMAIL }}
           to: ${{ secrets.TO_EMAIL }}
           secure: true
-          subject: "WATCHLIST MIN"
-          body: ${{ steps.build_min.outputs.body }}
+          subject: "WATCHLIST SIGNALS DAILY"
+          body: "Daily signals attached (UTF-8, LF)."
+          attachments: |
+            ${{ steps.build.outputs.fullpath }}
+
+      - name: Send WATCHLIST SIGNALS MIN (inline)
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          from: ${{ secrets.FROM_EMAIL }}
+          to: ${{ secrets.TO_EMAIL }}
+          secure: true
+          subject: "WATCHLIST SIGNALS MIN"
+          body: ${{ steps.build.outputs.minbody }}
