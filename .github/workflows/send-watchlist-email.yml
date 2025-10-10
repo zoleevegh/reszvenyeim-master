@@ -26,19 +26,17 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Send email with CSV (inline + attachment)
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_HOST }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USER }}
-          password: ${{ secrets.SMTP_PASS }}
-          from: ${{ secrets.FROM_EMAIL }}   # <-- EZ HIÁNYZOTT
-          to: ${{ secrets.TO_EMAIL }}
-          secure: true
-          subject: "WATCHLIST CSV ${{ github.run_id }}"
-          html_body: |
-            <p>Daily watchlist CSV inline:</p>
-            <pre>${{ steps.csv.outputs.body }}</pre>
-          attachments: |
-            docs/watchlist.csv
+      - name: Send email with CSV (attachment only)
+  uses: dawidd6/action-send-mail@v3
+  with:
+    server_address: ${{ secrets.SMTP_HOST }}
+    server_port: ${{ secrets.SMTP_PORT }}
+    username: ${{ secrets.SMTP_USER }}
+    password: ${{ secrets.SMTP_PASS }}
+    from: ${{ secrets.FROM_EMAIL }}
+    to: ${{ secrets.TO_EMAIL }}
+    secure: true
+    subject: "WATCHLIST CSV DAILY"
+    body: "Daily watchlist attached as CSV. (UTF-8, LF)"
+    attachments: |
+      docs/watchlist.csv
