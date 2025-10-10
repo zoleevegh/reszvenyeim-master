@@ -34,28 +34,34 @@ jobs:
         id: build_min
         shell: bash
         run: |
-          python - <<'PY' > min_watchlist.txt
-import csv, io, pathlib
-p = pathlib.Path("docs/watchlist.csv")
-data = p.read_text(encoding="utf-8", errors="replace")
+          # írunk egy kis Python scriptet fájlba (nincs here-doc redirect a python során)
+          cat > build_min.py <<'PY'
+          import csv, io, pathlib
+          p = pathlib.Path("docs/watchlist.csv")
+          data = p.read_text(encoding="utf-8", errors="replace")
 
-# próbáljuk "," majd ";" elválasztóval
-rows = []
-for delim in (",", ";"):
-    rdr = csv.reader(io.StringIO(data), delimiter=delim)
-    rows = list(rdr)
-    if rows and len(rows[0]) >= 2:
-        break
+          # próbáljuk "," majd ";" elválasztóval
+          rows = []
+          for delim in (",", ";"):
+              rdr = csv.reader(io.StringIO(data), delimiter=delim)
+              rows = list(rdr)
+              if rows and len(rows[0]) >= 2:
+                  break
 
-out = ["Ticker,Darabszám"]
-for r in rows[1:]:
-    t = (r[0] if len(r) > 0 else "").strip()
-    d = (r[1] if len(r) > 1 else "").strip()
-    if t:
-        out.append(f"{t},{d}")
+          out = ["Ticker,Darabszám"]
+          for r in rows[1:]:
+              t = (r[0] if len(r) > 0 else "").strip()
+              d = (r[1] if len(r) > 1 else "").strip()
+              if t:
+                  out.append(f"{t},{d}")
 
-pathlib.Path("min_watchlist.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
-PY
+          pathlib.Path("min_watchlist.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
+          PY
+
+          # futtatjuk a scriptet
+          python build_min.py
+
+          # a min_watchlist.txt tartalmát kitéve a step outputjába
           {
             echo 'body<<EOF'
             cat min_watchlist.txt
