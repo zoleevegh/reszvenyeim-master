@@ -1,13 +1,34 @@
-name: Send mail TEST
+name: Send watchlist CSV by email
 
 on:
-  workflow_dispatch:
+  schedule:
+    # GitHub cron = UTC. Két sor az óraátállítás miatt:
+    - cron: "58 7 * * 1-5"   # 08:58 CET (téli idő, UTC+1)
+    - cron: "58 6 * * 1-5"   # 08:58 CEST (nyári idő, UTC+2)
+  workflow_dispatch: {}
 
 jobs:
   send:
     runs-on: ubuntu-latest
     steps:
-      - name: Send email (test)
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # Kinyerjük a CSV-t egy outputba, egyszerű névvel: "body"
+      - name: Build email body from CSV
+        id: csv
+        run: |
+          {
+            echo 'body<<EOF'
+            echo "WATCHLIST CSV $(date -u +'%Y-%m-%d') (UTC)"
+            echo
+            echo '-----BEGIN CSV-----'
+            cat docs/watchlist.csv
+            echo '-----END CSV-----'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send email with CSV (inline + attachment)
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_HOST }}
@@ -16,8 +37,11 @@ jobs:
           password: ${{ secrets.SMTP_PASS }}
           from: ${{ secrets.FROM_EMAIL }}
           to: ${{ secrets.TO_EMAIL }}
-          subject: "GitHub Actions mail test"
           secure: true
-          body: |
-            Hello,
-            This is a test email from GitHub Actions.
+          subject: "WATCHLIST CSV ${{ github.run_id }}"
+          # Ha sima szöveg kellene: használd a 'body' kulcsot.
+          html_body: |
+            <p>Daily watchlist CSV inline:</p>
+            <pre>${{ steps.csv.outputs.body }}</pre>
+          attachments: |
+            docs/watchlist.csv
